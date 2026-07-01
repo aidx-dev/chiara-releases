@@ -1,0 +1,81 @@
+name: Release
+
+# ⚠️ Este fichero NO va en el repo privado. Cópialo al repo PÚBLICO de releases
+#    (aidx-dev/aidx-releases) en la ruta .github/workflows/release.yml
+#
+# Qué hace:
+#  1. Se dispara desde el repo privado (trigger-release.yml) o a mano.
+#  2. Hace checkout del código FUENTE del repo privado en el tag indicado.
+#  3. Compila para macOS (Intel + Apple Silicon) y Windows en paralelo.
+#  4. Firma los artefactos del updater y publica instaladores + latest.json
+#     como una GitHub Release EN ESTE repo público.
+#
+# Secrets necesarios en el repo público:
+#  - SOURCE_REPO_TOKEN                  PAT (fine-grained) con "Contents: read" sobre aidx-dev/aidx
+#  - TAURI_SIGNING_PRIVATE_KEY          contenido de ~/.tauri/clinic-desktop.key
+#  - TAURI_SIGNING_PRIVATE_KEY_PASSWORD contraseña de esa clave
+#  (GITHUB_TOKEN es automático y basta para crear la release en este repo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Tag del repo privado a compilar (ej. v0.1.1)"
+        required: true
+
+jobs:
+  publish:
+    permissions:
+      contents: write # crear la release + el tag en este repo público
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest # Apple Silicon (M1/M2/M3)
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest # Intel
+            args: "--target x86_64-apple-darwin"
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout del código privado (tag ${{ inputs.source_ref }})
+        uses: actions/checkout@v4
+        with:
+          repository: aidx-dev/aidx
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: source
+          lfs: false # los modelos (8 GB) no se bundlean; no hacen falta para compilar
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache de compilación de Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: source/src-tauri
+
+      - name: Instalar dependencias del frontend
+        working-directory: source
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: source
+          tagName: ${{ inputs.source_ref }}
+          releaseName: "Clinic Desktop ${{ inputs.source_ref }}"
+          releaseBody: "Descarga el instalador de tu sistema abajo. La app se autoactualiza al arrancar."
+          releaseDraft: true # revisa el borrador y publícalo a mano mientras aprendes
+          prerelease: false
+          args: ${{ matrix.args }}
