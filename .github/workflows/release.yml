@@ -33,7 +33,7 @@ jobs:
         include:
           - platform: macos-latest # Apple Silicon (M1/M2/M3)
             args: "--target aarch64-apple-darwin"
-          - platform: macos-latest # Intel
+          - platform: macos-13          # Intel → compila x86_64 nativo
             args: "--target x86_64-apple-darwin"
           - platform: windows-latest
             args: ""
