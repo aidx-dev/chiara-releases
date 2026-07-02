@@ -6,7 +6,7 @@ name: Release
 # Qué hace:
 #  1. Se dispara desde el repo privado (trigger-release.yml) o a mano.
 #  2. Hace checkout del código FUENTE del repo privado en el tag indicado.
-#  3. Compila para macOS (Intel + Apple Silicon) y Windows en paralelo.
+#  3. Compila para macOS (Apple Silicon) y Windows en paralelo.
 #  4. Firma los artefactos del updater y publica instaladores + latest.json
 #     como una GitHub Release EN ESTE repo público.
 #
@@ -33,8 +33,6 @@ jobs:
         include:
           - platform: macos-latest # Apple Silicon (M1/M2/M3)
             args: "--target aarch64-apple-darwin"
-          - platform: macos-13          # Intel → compila x86_64 nativo
-            args: "--target x86_64-apple-darwin"
           - platform: windows-latest
             args: ""
 
