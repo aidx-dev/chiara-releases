@@ -72,7 +72,7 @@ jobs:
         with:
           projectPath: source
           tagName: ${{ inputs.source_ref }}
-          releaseName: "Clinic Desktop ${{ inputs.source_ref }}"
+          releaseName: "Chiara Clinic ${{ inputs.source_ref }}"
           releaseBody: "Descarga el instalador de tu sistema abajo. La app se autoactualiza al arrancar."
           releaseDraft: true # revisa el borrador y publícalo a mano mientras aprendes
           prerelease: false
