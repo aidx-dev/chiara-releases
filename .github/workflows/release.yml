@@ -31,7 +31,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest # Apple Silicon (M1/M2/M3)
+          # NO usar macos-latest: es un blanco móvil (GitHub rota la imagen y el
+          # Xcode por defecto). Con Xcode 16.3+ el enlazado de `ort` rompe con
+          # "ld: library 'clang_rt.osx' not found". macos-14 es Apple Silicon
+          # estable y trae Xcode 16.2 instalado (lo fijamos abajo).
+          - platform: macos-14 # Apple Silicon (M1/M2/M3)
             args: "--target aarch64-apple-darwin"
           - platform: windows-latest
             args: ""
@@ -46,6 +50,16 @@ jobs:
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           path: source
           lfs: false # los modelos (8 GB) no se bundlean; no hacen falta para compilar
+
+      # Fija Xcode 16.2, que sí incluye libclang_rt.osx.a. Xcode 16.3+ reubicó esa
+      # librería estática y la crate `ort` (ONNX Runtime) falla al enlazar con
+      # "ld: library 'clang_rt.osx' not found". Requiere que el runner tenga esa
+      # versión instalada: por eso arriba fijamos macos-14 (no macos-latest).
+      - name: Seleccionar Xcode compatible (solo macOS)
+        if: runner.os == 'macOS'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
 
       - uses: actions/setup-node@v4
         with:
