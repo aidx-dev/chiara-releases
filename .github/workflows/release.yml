@@ -73,6 +73,13 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: source/src-tauri
+          # El build script de `ort` graba en target/ las rutas de enlazado del
+          # toolchain (clang de Xcode) y su carpeta de descarga de ONNX Runtime. Si
+          # se restaura una caché creada con OTRO Xcode, cargo NO re-ejecuta el
+          # build script y el enlazado apunta a un clang que ya no existe
+          # ("clang_rt.osx not found"). Metemos la versión de Xcode en la clave para
+          # que un cambio de Xcode invalide la caché y fuerce un build limpio.
+          prefix-key: "v2-rust-xcode16.2"
 
       - name: Instalar dependencias del frontend
         working-directory: source
