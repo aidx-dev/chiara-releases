@@ -13,7 +13,7 @@ name: Release
 # Canales:
 #  - channel=stable   → prerelease=false → actualiza latest.json estable
 #  - channel=rc       → prerelease=true  → release pre-release; NO toca latest estable
-#  - channel=snapshot → prerelease=true  → idem, con versión automática dev.DATE.SHA
+#  - channel=snapshot → prerelease=true  → idem, con versión automática dev.TIMESTAMP.RUN
 #
 # Secrets necesarios en el repo público:
 #  - SOURCE_REPO_TOKEN                  PAT (fine-grained) con "Contents: read" sobre aidx-dev/aidx
@@ -36,7 +36,7 @@ on:
         required: false
         default: "stable"
       snapshot_version:
-        description: "Versión a usar en snapshots (ej. 0.0.0-dev.20260713.abc1234)"
+        description: "Versión a usar en snapshots (ej. 0.0.0-dev.20260713153045.1234)"
         required: false
         default: ""
 
@@ -163,7 +163,7 @@ jobs:
         run: |
           ARGS="${{ matrix.args }}"
           # WiX/MSI requiere que el pre-release identifier sea numérico y ≤ 65535.
-          # Las versiones snapshot (ej. 0.0.0-dev.20260713.abc1234) rompen ese
+          # Las versiones snapshot (ej. 0.0.0-dev.20260713153045.1234) rompen ese
           # requisito → usamos NSIS en su lugar, que no tiene esa restricción
           # y también genera el artefacto del updater (.nsis.zip).
           if [[ "${{ inputs.channel }}" == "snapshot" && "${{ runner.os }}" == "Windows" ]]; then
