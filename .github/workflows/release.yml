@@ -99,15 +99,22 @@ jobs:
           prefix-key: "v2-rust-xcode16.2"
 
       - name: Aplicar versión snapshot
-        if: ${{ inputs.channel == 'snapshot' && inputs.snapshot_version != '' }}
+        if: inputs.channel == 'snapshot'
+        id: snapshot_ver
         working-directory: source
         shell: bash
         run: |
-          VERSION="${{ inputs.snapshot_version }}"
+          # Lee la versión base del propio tauri.conf.json del commit
+          BASE=$(jq -r '.version' src-tauri/tauri.conf.json)
+          SHORT_SHA="${{ inputs.source_ref }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          DATE="$(date -u +%Y%m%d)"
+          VERSION="${BASE}-dev.${DATE}.${SHORT_SHA}"
           jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json \
             > src-tauri/tauri.conf.json.tmp
           mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
           echo "Versión aplicada: $VERSION"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Instalar create-dmg (macOS)
         if: runner.os == 'macOS'
@@ -122,8 +129,8 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ inputs.channel }}" == "snapshot" ]]; then
-            TAG="${{ inputs.snapshot_version }}"
-            NAME="Chiara Clinic (snapshot) ${{ inputs.snapshot_version }}"
+            TAG="${{ steps.snapshot_ver.outputs.version }}"
+            NAME="Chiara Clinic (snapshot) ${{ steps.snapshot_ver.outputs.version }}"
             BODY="Build automático desde develop. NO usar en producción."
           elif [[ "${{ inputs.channel }}" == "rc" ]]; then
             TAG="${{ inputs.source_ref }}"
