@@ -39,6 +39,10 @@ on:
         description: "Versión a usar en snapshots (ej. 0.0.0-dev.20260713153045.1234)"
         required: false
         default: ""
+      release_notes_b64:
+        description: "Changelog codificado en base64 desde el repo privado"
+        required: false
+        default: ""
 
 jobs:
   publish:
@@ -140,6 +144,11 @@ jobs:
         id: release_meta
         shell: bash
         run: |
+          NOTES_RAW=""
+          if [[ -n "${{ inputs.release_notes_b64 }}" ]]; then
+            NOTES_RAW=$(printf '%s' "${{ inputs.release_notes_b64 }}" | base64 --decode || true)
+          fi
+
           if [[ "${{ inputs.channel }}" == "snapshot" ]]; then
             TAG="${{ inputs.snapshot_version }}"
             NAME="Chiara Clinic (snapshot) ${{ inputs.snapshot_version }}"
@@ -153,9 +162,18 @@ jobs:
             NAME="Chiara Clinic ${{ inputs.source_ref }}"
             BODY="Descarga el instalador de tu sistema abajo. La app se autoactualiza al arrancar."
           fi
-          echo "tag=${TAG}"   >> "$GITHUB_OUTPUT"
-          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
-          echo "body=${BODY}" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$NOTES_RAW" ]]; then
+            BODY="${BODY}\n\n## Changelog\n${NOTES_RAW}"
+          fi
+
+          {
+            echo "tag=${TAG}"
+            echo "name=${NAME}"
+            echo "body<<EOF"
+            printf "%b\n" "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Calcular args de compilación
         id: build_args
