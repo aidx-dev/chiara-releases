@@ -109,6 +109,10 @@ jobs:
           mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
           echo "Versión aplicada: $VERSION"
 
+      - name: Instalar create-dmg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install create-dmg
+
       - name: Instalar dependencias del frontend
         working-directory: source
         run: npm ci
@@ -134,6 +138,20 @@ jobs:
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "body=${BODY}" >> "$GITHUB_OUTPUT"
 
+      - name: Calcular args de compilación
+        id: build_args
+        shell: bash
+        run: |
+          ARGS="${{ matrix.args }}"
+          # WiX/MSI requiere que el pre-release identifier sea numérico y ≤ 65535.
+          # Las versiones snapshot (ej. 0.0.0-dev.20260713.abc1234) rompen ese
+          # requisito → usamos NSIS en su lugar, que no tiene esa restricción
+          # y también genera el artefacto del updater (.nsis.zip).
+          if [[ "${{ inputs.channel }}" == "snapshot" && "${{ runner.os }}" == "Windows" ]]; then
+            ARGS="$ARGS --bundles nsis"
+          fi
+          echo "args=${ARGS}" >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -146,4 +164,4 @@ jobs:
           releaseBody: ${{ steps.release_meta.outputs.body }}
           releaseDraft: ${{ inputs.channel == 'stable' }}  # solo stable se revisa como borrador
           prerelease: ${{ inputs.prerelease == 'true' }}
-          args: ${{ matrix.args }}
+          args: ${{ steps.build_args.outputs.args }}
