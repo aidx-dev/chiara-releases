@@ -185,92 +185,92 @@ jobs:
           prerelease: ${{ inputs.prerelease == 'true' }}
           args: ${{ steps.build_args.outputs.args }}
 
-# Job independiente que se ejecuta UNA SOLA VEZ cuando ambos runners (mac + win)
-# han terminado. Copia latest.json de la release recién publicada a la release
-# fija "snapshot-channel", que actúa como endpoint estable para el updater.
-# Los builds de snapshot apuntan su updater a:
-#   https://github.com/aidx-dev/chiara-releases/releases/download/snapshot-channel/latest.json
-update-snapshot-channel:
-  needs: publish
-  if: ${{ inputs.channel == 'snapshot' }}
-  runs-on: ubuntu-latest
-  permissions:
-    contents: write
-  steps:
-    - name: Actualizar release snapshot-channel
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        VERSION="${{ inputs.snapshot_version }}"
-        REPO="${{ github.repository }}"
+  # Job independiente que se ejecuta UNA SOLA VEZ cuando ambos runners (mac + win)
+  # han terminado. Copia latest.json de la release recién publicada a la release
+  # fija "snapshot-channel", que actúa como endpoint estable para el updater.
+  # Los builds de snapshot apuntan su updater a:
+  #   https://github.com/aidx-dev/chiara-releases/releases/download/snapshot-channel/latest.json
+  update-snapshot-channel:
+    needs: publish
+    if: ${{ inputs.channel == 'snapshot' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Actualizar release snapshot-channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.snapshot_version }}"
+          REPO="${{ github.repository }}"
 
-        # Descargar latest.json de la release recién publicada
-        gh release download "${VERSION}" \
-          --repo "${REPO}" \
-          --pattern "latest.json" \
-          --output latest.json
+          # Descargar latest.json de la release recién publicada
+          gh release download "${VERSION}" \
+            --repo "${REPO}" \
+            --pattern "latest.json" \
+            --output latest.json
 
-        # SHA de main para anclar el tag snapshot-channel
-        MAIN_SHA=$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')
+          # SHA de main para anclar el tag snapshot-channel
+          MAIN_SHA=$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')
 
-        # Borrar release y tag existentes (se recrean frescos)
-        gh release delete snapshot-channel --repo "${REPO}" --yes 2>/dev/null || true
-        gh api "repos/${REPO}/git/refs/tags/snapshot-channel" -X DELETE 2>/dev/null || true
+          # Borrar release y tag existentes (se recrean frescos)
+          gh release delete snapshot-channel --repo "${REPO}" --yes 2>/dev/null || true
+          gh api "repos/${REPO}/git/refs/tags/snapshot-channel" -X DELETE 2>/dev/null || true
 
-        # Crear tag snapshot-channel apuntando a main
-        gh api "repos/${REPO}/git/refs" \
-          -f ref="refs/tags/snapshot-channel" \
-          -f sha="${MAIN_SHA}"
+          # Crear tag snapshot-channel apuntando a main
+          gh api "repos/${REPO}/git/refs" \
+            -f ref="refs/tags/snapshot-channel" \
+            -f sha="${MAIN_SHA}"
 
-        # Crear release snapshot-channel con el latest.json
-        gh release create snapshot-channel \
-          --repo "${REPO}" \
-          --title "Snapshot Channel (auto-update endpoint)" \
-          --notes "Endpoint del updater para builds de develop. Se sobreescribe en cada push. Versión actual: ${VERSION}" \
-          --prerelease \
-          latest.json
+          # Crear release snapshot-channel con el latest.json
+          gh release create snapshot-channel \
+            --repo "${REPO}" \
+            --title "Snapshot Channel (auto-update endpoint)" \
+            --notes "Endpoint del updater para builds de develop. Se sobreescribe en cada push. Versión actual: ${VERSION}" \
+            --prerelease \
+            latest.json
 
-# Job independiente que se ejecuta UNA SOLA VEZ cuando ambos runners (mac + win)
-# han terminado. Copia latest.json de la release recién publicada a la release
-# fija "rc-channel", que actúa como endpoint estable para el updater de RCs.
-# Los builds RC apuntan su updater a:
-#   https://github.com/aidx-dev/chiara-releases/releases/download/rc-channel/latest.json
-update-rc-channel:
-  needs: publish
-  if: ${{ inputs.channel == 'rc' }}
-  runs-on: ubuntu-latest
-  permissions:
-    contents: write
-  steps:
-    - name: Actualizar release rc-channel
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        VERSION="${{ inputs.source_ref }}"
-        REPO="${{ github.repository }}"
+  # Job independiente que se ejecuta UNA SOLA VEZ cuando ambos runners (mac + win)
+  # han terminado. Copia latest.json de la release recién publicada a la release
+  # fija "rc-channel", que actúa como endpoint estable para el updater de RCs.
+  # Los builds RC apuntan su updater a:
+  #   https://github.com/aidx-dev/chiara-releases/releases/download/rc-channel/latest.json
+  update-rc-channel:
+    needs: publish
+    if: ${{ inputs.channel == 'rc' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Actualizar release rc-channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.source_ref }}"
+          REPO="${{ github.repository }}"
 
-        # Descargar latest.json de la release recién publicada
-        gh release download "${VERSION}" \
-          --repo "${REPO}" \
-          --pattern "latest.json" \
-          --output latest.json
+          # Descargar latest.json de la release recién publicada
+          gh release download "${VERSION}" \
+            --repo "${REPO}" \
+            --pattern "latest.json" \
+            --output latest.json
 
-        # SHA de main para anclar el tag rc-channel
-        MAIN_SHA=$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')
+          # SHA de main para anclar el tag rc-channel
+          MAIN_SHA=$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')
 
-        # Borrar release y tag existentes (se recrean frescos)
-        gh release delete rc-channel --repo "${REPO}" --yes 2>/dev/null || true
-        gh api "repos/${REPO}/git/refs/tags/rc-channel" -X DELETE 2>/dev/null || true
+          # Borrar release y tag existentes (se recrean frescos)
+          gh release delete rc-channel --repo "${REPO}" --yes 2>/dev/null || true
+          gh api "repos/${REPO}/git/refs/tags/rc-channel" -X DELETE 2>/dev/null || true
 
-        # Crear tag rc-channel apuntando a main
-        gh api "repos/${REPO}/git/refs" \
-          -f ref="refs/tags/rc-channel" \
-          -f sha="${MAIN_SHA}"
+          # Crear tag rc-channel apuntando a main
+          gh api "repos/${REPO}/git/refs" \
+            -f ref="refs/tags/rc-channel" \
+            -f sha="${MAIN_SHA}"
 
-        # Crear release rc-channel con el latest.json
-        gh release create rc-channel \
-          --repo "${REPO}" \
-          --title "RC Channel (auto-update endpoint)" \
-          --notes "Endpoint del updater para release candidates. Se sobreescribe con cada RC. Versión actual: ${VERSION}" \
-          --prerelease \
-          latest.json
+          # Crear release rc-channel con el latest.json
+          gh release create rc-channel \
+            --repo "${REPO}" \
+            --title "RC Channel (auto-update endpoint)" \
+            --notes "Endpoint del updater para release candidates. Se sobreescribe con cada RC. Versión actual: ${VERSION}" \
+            --prerelease \
+            latest.json
