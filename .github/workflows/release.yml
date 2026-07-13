@@ -100,21 +100,33 @@ jobs:
 
       - name: Aplicar versión snapshot
         if: inputs.channel == 'snapshot'
-        id: snapshot_ver
         working-directory: source
         shell: bash
         run: |
-          # Lee la versión base del propio tauri.conf.json del commit
-          BASE=$(jq -r '.version' src-tauri/tauri.conf.json)
-          SHORT_SHA="${{ inputs.source_ref }}"
-          SHORT_SHA="${SHORT_SHA:0:7}"
-          DATE="$(date -u +%Y%m%d)"
-          VERSION="${BASE}-dev.${DATE}.${SHORT_SHA}"
+          VERSION="${{ inputs.snapshot_version }}"
+          # Sobrescribir versión en tauri.conf.json
           jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json \
-            > src-tauri/tauri.conf.json.tmp
-          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+            > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          # Redirigir el updater al canal snapshot-channel en lugar de releases/latest
+          # (releases/latest solo sirve releases no-prerelease; los snapshots nunca aparecerían)
+          jq '.plugins.updater.endpoints = ["https://github.com/aidx-dev/chiara-releases/releases/download/snapshot-channel/latest.json"]' \
+            src-tauri/tauri.conf.json \
+            > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
           echo "Versión aplicada: $VERSION"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Aplicar endpoint RC
+        if: inputs.channel == 'rc'
+        working-directory: source
+        shell: bash
+        run: |
+          # releases/latest solo sirve no-prerelease → rc.1 no detectaría rc.2.
+          # rc-channel es una release fija (igual que snapshot-channel) que siempre
+          # apunta al RC más reciente. RC→stable también funciona: cuando exista una
+          # stable, su versión será mayor y el updater la preferirá sobre rc-channel.
+          jq '.plugins.updater.endpoints = ["https://github.com/aidx-dev/chiara-releases/releases/download/rc-channel/latest.json"]' \
+            src-tauri/tauri.conf.json \
+            > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          echo "Endpoint RC aplicado"
 
       - name: Instalar create-dmg (macOS)
         if: runner.os == 'macOS'
@@ -129,8 +141,8 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ inputs.channel }}" == "snapshot" ]]; then
-            TAG="${{ steps.snapshot_ver.outputs.version }}"
-            NAME="Chiara Clinic (snapshot) ${{ steps.snapshot_ver.outputs.version }}"
+            TAG="${{ inputs.snapshot_version }}"
+            NAME="Chiara Clinic (snapshot) ${{ inputs.snapshot_version }}"
             BODY="Build automático desde develop. NO usar en producción."
           elif [[ "${{ inputs.channel }}" == "rc" ]]; then
             TAG="${{ inputs.source_ref }}"
@@ -172,3 +184,93 @@ jobs:
           releaseDraft: ${{ inputs.channel == 'stable' }}  # solo stable se revisa como borrador
           prerelease: ${{ inputs.prerelease == 'true' }}
           args: ${{ steps.build_args.outputs.args }}
+
+# Job independiente que se ejecuta UNA SOLA VEZ cuando ambos runners (mac + win)
+# han terminado. Copia latest.json de la release recién publicada a la release
+# fija "snapshot-channel", que actúa como endpoint estable para el updater.
+# Los builds de snapshot apuntan su updater a:
+#   https://github.com/aidx-dev/chiara-releases/releases/download/snapshot-channel/latest.json
+update-snapshot-channel:
+  needs: publish
+  if: ${{ inputs.channel == 'snapshot' }}
+  runs-on: ubuntu-latest
+  permissions:
+    contents: write
+  steps:
+    - name: Actualizar release snapshot-channel
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        VERSION="${{ inputs.snapshot_version }}"
+        REPO="${{ github.repository }}"
+
+        # Descargar latest.json de la release recién publicada
+        gh release download "${VERSION}" \
+          --repo "${REPO}" \
+          --pattern "latest.json" \
+          --output latest.json
+
+        # SHA de main para anclar el tag snapshot-channel
+        MAIN_SHA=$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')
+
+        # Borrar release y tag existentes (se recrean frescos)
+        gh release delete snapshot-channel --repo "${REPO}" --yes 2>/dev/null || true
+        gh api "repos/${REPO}/git/refs/tags/snapshot-channel" -X DELETE 2>/dev/null || true
+
+        # Crear tag snapshot-channel apuntando a main
+        gh api "repos/${REPO}/git/refs" \
+          -f ref="refs/tags/snapshot-channel" \
+          -f sha="${MAIN_SHA}"
+
+        # Crear release snapshot-channel con el latest.json
+        gh release create snapshot-channel \
+          --repo "${REPO}" \
+          --title "Snapshot Channel (auto-update endpoint)" \
+          --notes "Endpoint del updater para builds de develop. Se sobreescribe en cada push. Versión actual: ${VERSION}" \
+          --prerelease \
+          latest.json
+
+# Job independiente que se ejecuta UNA SOLA VEZ cuando ambos runners (mac + win)
+# han terminado. Copia latest.json de la release recién publicada a la release
+# fija "rc-channel", que actúa como endpoint estable para el updater de RCs.
+# Los builds RC apuntan su updater a:
+#   https://github.com/aidx-dev/chiara-releases/releases/download/rc-channel/latest.json
+update-rc-channel:
+  needs: publish
+  if: ${{ inputs.channel == 'rc' }}
+  runs-on: ubuntu-latest
+  permissions:
+    contents: write
+  steps:
+    - name: Actualizar release rc-channel
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        VERSION="${{ inputs.source_ref }}"
+        REPO="${{ github.repository }}"
+
+        # Descargar latest.json de la release recién publicada
+        gh release download "${VERSION}" \
+          --repo "${REPO}" \
+          --pattern "latest.json" \
+          --output latest.json
+
+        # SHA de main para anclar el tag rc-channel
+        MAIN_SHA=$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')
+
+        # Borrar release y tag existentes (se recrean frescos)
+        gh release delete rc-channel --repo "${REPO}" --yes 2>/dev/null || true
+        gh api "repos/${REPO}/git/refs/tags/rc-channel" -X DELETE 2>/dev/null || true
+
+        # Crear tag rc-channel apuntando a main
+        gh api "repos/${REPO}/git/refs" \
+          -f ref="refs/tags/rc-channel" \
+          -f sha="${MAIN_SHA}"
+
+        # Crear release rc-channel con el latest.json
+        gh release create rc-channel \
+          --repo "${REPO}" \
+          --title "RC Channel (auto-update endpoint)" \
+          --notes "Endpoint del updater para release candidates. Se sobreescribe con cada RC. Versión actual: ${VERSION}" \
+          --prerelease \
+          latest.json
