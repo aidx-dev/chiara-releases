@@ -19,7 +19,14 @@ name: Release
 #  - SOURCE_REPO_TOKEN                  PAT (fine-grained) con "Contents: read" sobre aidx-dev/aidx
 #  - TAURI_SIGNING_PRIVATE_KEY          contenido de ~/.tauri/clinic-desktop.key
 #  - TAURI_SIGNING_PRIVATE_KEY_PASSWORD contraseña de esa clave
+#  - STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY   proyecto de staging (canales rc y snapshot)
+#  - PROD_SUPABASE_URL / PROD_SUPABASE_ANON_KEY         proyecto de producción (canal stable)
 #  (GITHUB_TOKEN es automático y basta para crear la release en este repo)
+#
+# Qué Supabase trae cada build de fábrica (src-tauri/src/infrastructure/remote/config.rs):
+# el paso "Elegir Supabase por canal" fija AIDX_SUPABASE_URL_DEFAULT/ANON_KEY_DEFAULT
+# antes de compilar; es el último recurso, así que `supabase.json`/`app_kv` en la
+# instalación de una clínica lo siguen pisando sin recompilar nada.
 
 on:
   workflow_dispatch:
@@ -100,7 +107,13 @@ jobs:
           # build script y el enlazado apunta a un clang que ya no existe
           # ("clang_rt.osx not found"). Metemos la versión de Xcode en la clave para
           # que un cambio de Xcode invalide la caché y fuerce un build limpio.
-          prefix-key: "v2-rust-xcode16.2"
+          #
+          # También metemos el canal: AIDX_SUPABASE_URL_DEFAULT/ANON_KEY_DEFAULT
+          # (ver el env del paso tauri-action) se compilan dentro del binario vía
+          # `option_env!`, y una caché compartida entre canales podría reutilizar
+          # el `.o` de `config.rs` de un build de `rc` para publicar `stable` con
+          # la URL de staging empotrada.
+          prefix-key: "v2-rust-xcode16.2-${{ inputs.channel }}"
 
       - name: Aplicar versión snapshot
         if: inputs.channel == 'snapshot'
@@ -194,6 +207,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Último recurso leído por src-tauri/src/infrastructure/remote/config.rs
+          # (compile_time_default): stable → producción, rc/snapshot → staging.
+          # `supabase.json`/`app_kv` en la instalación de una clínica lo pisan sin
+          # recompilar nada.
+          AIDX_SUPABASE_URL_DEFAULT: ${{ inputs.channel == 'stable' && secrets.PROD_SUPABASE_URL || secrets.STAGING_SUPABASE_URL }}
+          AIDX_SUPABASE_ANON_KEY_DEFAULT: ${{ inputs.channel == 'stable' && secrets.PROD_SUPABASE_ANON_KEY || secrets.STAGING_SUPABASE_ANON_KEY }}
         with:
           projectPath: source
           tagName: ${{ steps.release_meta.outputs.tag }}
