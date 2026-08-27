@@ -115,35 +115,55 @@ jobs:
           # la URL de staging empotrada.
           prefix-key: "v2-rust-xcode16.2-${{ inputs.channel }}"
 
-      - name: Aplicar versión snapshot
-        if: inputs.channel == 'snapshot'
+      - name: Aplicar identidad de canal (RC/snapshot)
+        # stable se queda con productName/identifier/icono/título por defecto
+        # de tauri.conf.json. RC y snapshot necesitan los suyos propios para
+        # poder convivir instalados a la vez que un stable en la misma
+        # máquina (mismo productName/identifier ⇒ mismo .app/instalador ⇒ se
+        # pisan entre sí al instalar).
+        if: inputs.channel != 'stable'
         working-directory: source
         shell: bash
         run: |
-          VERSION="${{ inputs.snapshot_version }}"
-          # Sobrescribir versión en tauri.conf.json
-          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json \
-            > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-          # Redirigir el updater al canal snapshot-channel en lugar de releases/latest
-          # (releases/latest solo sirve releases no-prerelease; los snapshots nunca aparecerían)
-          jq '.plugins.updater.endpoints = ["https://github.com/aidx-dev/chiara-releases/releases/download/snapshot-channel/latest.json"]' \
-            src-tauri/tauri.conf.json \
-            > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-          echo "Versión aplicada: $VERSION"
+          if [[ "${{ inputs.channel }}" == "snapshot" ]]; then
+            PRODUCT_NAME="Chiara Clinic Snapshot"
+            IDENTIFIER="com.chiaragroup.clinic.snapshot"
+            ICON_DIR="icons-snapshot"
+            ENDPOINT="https://github.com/aidx-dev/chiara-releases/releases/download/snapshot-channel/latest.json"
+          else
+            PRODUCT_NAME="Chiara Clinic RC"
+            IDENTIFIER="com.chiaragroup.clinic.rc"
+            ICON_DIR="icons-rc"
+            # releases/latest solo sirve no-prerelease → rc.1 no detectaría rc.2.
+            # rc-channel es una release fija (igual que snapshot-channel) que
+            # siempre apunta al RC más reciente. RC→stable también funciona:
+            # cuando exista una stable, su versión será mayor y el updater la
+            # preferirá sobre rc-channel.
+            ENDPOINT="https://github.com/aidx-dev/chiara-releases/releases/download/rc-channel/latest.json"
+          fi
 
-      - name: Aplicar endpoint RC
-        if: inputs.channel == 'rc'
-        working-directory: source
-        shell: bash
-        run: |
-          # releases/latest solo sirve no-prerelease → rc.1 no detectaría rc.2.
-          # rc-channel es una release fija (igual que snapshot-channel) que siempre
-          # apunta al RC más reciente. RC→stable también funciona: cuando exista una
-          # stable, su versión será mayor y el updater la preferirá sobre rc-channel.
-          jq '.plugins.updater.endpoints = ["https://github.com/aidx-dev/chiara-releases/releases/download/rc-channel/latest.json"]' \
+          jq --arg name "$PRODUCT_NAME" \
+             --arg id "$IDENTIFIER" \
+             --arg title "$PRODUCT_NAME" \
+             --arg endpoint "$ENDPOINT" \
+             --arg icon_dir "$ICON_DIR" \
+             '.productName = $name
+              | .identifier = $id
+              | .app.windows[0].title = $title
+              | .plugins.updater.endpoints = [$endpoint]
+              | .bundle.icon = (.bundle.icon | map(sub("^icons/"; $icon_dir + "/")))' \
             src-tauri/tauri.conf.json \
             > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-          echo "Endpoint RC aplicado"
+
+          if [[ "${{ inputs.channel }}" == "snapshot" ]]; then
+            VERSION="${{ inputs.snapshot_version }}"
+            jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json \
+              > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+            echo "Versión aplicada: $VERSION"
+          fi
+
+          echo "CHIARA_APP_IDENTIFIER=$IDENTIFIER" >> "$GITHUB_ENV"
+          echo "Identidad aplicada: $PRODUCT_NAME ($IDENTIFIER)"
 
       - name: Instalar create-dmg (macOS)
         if: runner.os == 'macOS'
