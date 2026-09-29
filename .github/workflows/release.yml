@@ -21,6 +21,9 @@ name: Release
 #  - TAURI_SIGNING_PRIVATE_KEY_PASSWORD contraseña de esa clave
 #  - STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY   proyecto de staging (canales rc y snapshot)
 #  - PROD_SUPABASE_URL / PROD_SUPABASE_ANON_KEY         proyecto de producción (canal stable)
+#  - CHIARA_{LLM,ASR,EMBEDDER}_{URL,API_KEY,MODEL}      proveedor remoto de IA (todos los canales).
+#    Opcionales: si faltan, la app sólo usa los modelos locales. ⚠️ Temporal:
+#    las API keys se compilan dentro del instalador y cualquiera puede extraerlas.
 #  (GITHUB_TOKEN es automático y basta para crear la release en este repo)
 #
 # Qué Supabase trae cada build de fábrica (src-tauri/src/infrastructure/remote/config.rs):
@@ -233,6 +236,20 @@ jobs:
           # recompilar nada.
           CHIARA_SUPABASE_URL_DEFAULT: ${{ inputs.channel == 'stable' && secrets.PROD_SUPABASE_URL || secrets.STAGING_SUPABASE_URL }}
           CHIARA_SUPABASE_ANON_KEY_DEFAULT: ${{ inputs.channel == 'stable' && secrets.PROD_SUPABASE_ANON_KEY || secrets.STAGING_SUPABASE_ANON_KEY }}
+          # Proveedor remoto de IA para el toggle local/cloud, leído por
+          # src-tauri/src/features/recording/engine/llama_cli.rs
+          # (compile_time_default). Una variable exportada en la shell lo pisa.
+          # ⚠️ TEMPORAL, sólo para pruebas: las API keys quedan legibles dentro
+          # del instalador público. Se sustituirán por claves por clínica en Supabase.
+          CHIARA_LLM_URL_DEFAULT: ${{ secrets.CHIARA_LLM_URL }}
+          CHIARA_LLM_API_KEY_DEFAULT: ${{ secrets.CHIARA_LLM_API_KEY }}
+          CHIARA_LLM_MODEL_DEFAULT: ${{ secrets.CHIARA_LLM_MODEL }}
+          CHIARA_ASR_URL_DEFAULT: ${{ secrets.CHIARA_ASR_URL }}
+          CHIARA_ASR_API_KEY_DEFAULT: ${{ secrets.CHIARA_ASR_API_KEY }}
+          CHIARA_ASR_MODEL_DEFAULT: ${{ secrets.CHIARA_ASR_MODEL }}
+          CHIARA_EMBEDDER_URL_DEFAULT: ${{ secrets.CHIARA_EMBEDDER_URL }}
+          CHIARA_EMBEDDER_API_KEY_DEFAULT: ${{ secrets.CHIARA_EMBEDDER_API_KEY }}
+          CHIARA_EMBEDDER_MODEL_DEFAULT: ${{ secrets.CHIARA_EMBEDDER_MODEL }}
         with:
           projectPath: source
           tagName: ${{ steps.release_meta.outputs.tag }}
