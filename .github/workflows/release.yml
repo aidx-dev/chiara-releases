@@ -6,7 +6,7 @@ name: Release
 # Qué hace:
 #  1. Se dispara desde el repo privado (trigger-release.yml) o a mano.
 #  2. Hace checkout del código FUENTE del repo privado en el tag/sha indicado.
-#  3. Compila para macOS (Apple Silicon) y Windows en paralelo.
+#  3. Compila para macOS (Apple Silicon e Intel) y Windows en paralelo.
 #  4. Firma los artefactos del updater y publica instaladores + latest.json
 #     como una GitHub Release EN ESTE repo público.
 #
@@ -67,8 +67,16 @@ jobs:
           # "ld: library 'clang_rt.osx' not found". macos-14 es Apple Silicon
           # estable y trae Xcode 16.2 instalado (lo fijamos abajo).
           - platform: macos-14 # Apple Silicon (M1/M2/M3)
+            target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
+          # Intel: se compila en cruzado desde el mismo macos-14 (ARM) para
+          # mantener Xcode 16.2. Los binarios de bin/macos se sustituyen por
+          # los x86_64 en el paso "Binarios x86_64 (Intel)".
+          - platform: macos-14
+            target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
           - platform: windows-latest
+            target: ""
             args: ""
 
     runs-on: ${{ matrix.platform }}
@@ -98,7 +106,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Cache de compilación de Rust
         uses: swatinem/rust-cache@v2
@@ -117,6 +125,9 @@ jobs:
           # el `.o` de `config.rs` de un build de `rc` para publicar `stable` con
           # la URL de staging empotrada.
           prefix-key: "v2-rust-xcode16.2-${{ inputs.channel }}"
+          # Los dos jobs de macOS corren en el mismo runner (macos-14): sin el
+          # target en la clave compartirían caché y uno pisaría al otro.
+          key: ${{ matrix.target }}
 
       - name: Aplicar identidad de canal (RC/snapshot)
         # stable se queda con productName/identifier/icono/título por defecto
@@ -167,6 +178,64 @@ jobs:
 
           echo "CHIARA_APP_IDENTIFIER=$IDENTIFIER" >> "$GITHUB_ENV"
           echo "Identidad aplicada: $PRODUCT_NAME ($IDENTIFIER)"
+
+      - name: Binarios x86_64 (Intel)
+        # source/src-tauri/bin/macos sólo trae binarios arm64. Para Intel se
+        # sustituyen por las mismas versiones en x86_64, descargadas de URLs
+        # fijas y verificadas por SHA-256. Para subir de versión: cambiar la
+        # URL y su hash a la vez que los binarios arm64 del repo privado.
+        #  - llama.cpp b9297 (CPU; en Intel no hay Metal)
+        #  - pdfium chromium/7881 (la misma que la arm64, API pdfium_7881 de pdfium-render)
+        #  - ffmpeg 9.0.2 estático (martin-riedl.de)
+        if: matrix.target == 'x86_64-apple-darwin'
+        working-directory: source/src-tauri/bin/macos
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$RUNNER_TEMP/intel-bins"
+          mkdir -p "$TMP"
+
+          fetch() { # url fichero sha256
+            curl -fsSL --retry 3 -o "$TMP/$2" "$1"
+            echo "$3  $TMP/$2" | shasum -a 256 -c -
+          }
+          fetch "https://github.com/ggml-org/llama.cpp/releases/download/b9297/llama-b9297-bin-macos-x64.tar.gz" \
+            llama.tar.gz 7f179110941b3e82a24b8274c77b5cb90a7ae60dbbfd9587ceddea3a8eacce0e
+          fetch "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7881/pdfium-mac-x64.tgz" \
+            pdfium.tgz 6dedf83990e0e3d6b7c93c9e7589c5a126b0ae14b7464d76120cff7a26afb18b
+          fetch "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip" \
+            ffmpeg.zip 7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4
+
+          # Fuera todo lo arm64 (incluido libggml-metal, que en x64 no existe).
+          rm -f llama* lib*.dylib rpc-server ffmpeg
+
+          tar -xzf "$TMP/llama.tar.gz" -C "$TMP"
+          cp -a "$TMP"/llama-b9297/. .
+
+          # pdfium sólo existe a partir de feat/document-enriched-reports; los
+          # refs anteriores no la traen y no hay nada que sustituir.
+          if [[ -d pdfium ]]; then
+            mkdir -p "$TMP/pdfium"
+            tar -xzf "$TMP/pdfium.tgz" -C "$TMP/pdfium"
+            cp "$TMP/pdfium/lib/libpdfium.dylib" pdfium/libpdfium.dylib
+          fi
+
+          unzip -q -o "$TMP/ffmpeg.zip" -d "$TMP/ffmpeg"
+          cp "$TMP/ffmpeg/ffmpeg" ffmpeg
+          chmod +x ffmpeg
+
+          # Ningún Mach-O arm64 puede colarse en el instalador de Intel.
+          BAD=0
+          while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q 'Mach-O'; then
+              ARCHS=$(lipo -archs "$f")
+              if [[ "$ARCHS" != *x86_64* ]]; then
+                echo "::error::$f no es x86_64 ($ARCHS)"
+                BAD=1
+              fi
+            fi
+          done < <(find . -type f -print0)
+          exit $BAD
 
       - name: Instalar create-dmg (macOS)
         if: runner.os == 'macOS'
@@ -259,7 +328,7 @@ jobs:
           prerelease: ${{ inputs.prerelease == 'true' }}
           args: ${{ steps.build_args.outputs.args }}
 
-  # Job independiente que se ejecuta UNA SOLA VEZ cuando ambos runners (mac + win)
+  # Job independiente que se ejecuta UNA SOLA VEZ cuando todos los runners (mac + win)
   # han terminado. Copia latest.json de la release recién publicada a la release
   # fija "snapshot-channel", que actúa como endpoint estable para el updater.
   # Los builds de snapshot apuntan su updater a:
@@ -304,7 +373,7 @@ jobs:
             --prerelease \
             latest.json
 
-  # Job independiente que se ejecuta UNA SOLA VEZ cuando ambos runners (mac + win)
+  # Job independiente que se ejecuta UNA SOLA VEZ cuando todos los runners (mac + win)
   # han terminado. Copia latest.json de la release recién publicada a la release
   # fija "rc-channel", que actúa como endpoint estable para el updater de RCs.
   # Los builds RC apuntan su updater a:
