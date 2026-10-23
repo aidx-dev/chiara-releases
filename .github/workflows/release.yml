@@ -24,6 +24,8 @@ name: Release
 #  - CHIARA_{LLM,ASR,EMBEDDER}_{URL,API_KEY,MODEL}      proveedor remoto de IA (todos los canales).
 #    Opcionales: si faltan, la app sólo usa los modelos locales. ⚠️ Temporal:
 #    las API keys se compilan dentro del instalador y cualquiera puede extraerlas.
+#  - CHIARA_VISION_MODEL (and optionally CHIARA_VISION_{URL,API_KEY})   model that reads scanned
+#    documents; must accept images. Unset fields fall back to CHIARA_LLM_*.
 #  (GITHUB_TOKEN es automático y basta para crear la release en este repo)
 #
 # Qué Supabase trae cada build de fábrica (src-tauri/src/infrastructure/remote/config.rs):
@@ -51,6 +53,14 @@ on:
         default: ""
       release_notes_b64:
         description: "Changelog codificado en base64 desde el repo privado"
+        required: false
+        default: ""
+      minimum_supported_version:
+        description: "Lowest version still allowed to run (from release-policy.json); older installs must update"
+        required: false
+        default: ""
+      minimum_supported_reason:
+        description: "Why the minimum was raised, shown on the blocking update screen"
         required: false
         default: ""
 
@@ -319,6 +329,9 @@ jobs:
           CHIARA_EMBEDDER_URL_DEFAULT: ${{ secrets.CHIARA_EMBEDDER_URL }}
           CHIARA_EMBEDDER_API_KEY_DEFAULT: ${{ secrets.CHIARA_EMBEDDER_API_KEY }}
           CHIARA_EMBEDDER_MODEL_DEFAULT: ${{ secrets.CHIARA_EMBEDDER_MODEL }}
+          CHIARA_VISION_URL_DEFAULT: ${{ secrets.CHIARA_VISION_URL }}
+          CHIARA_VISION_API_KEY_DEFAULT: ${{ secrets.CHIARA_VISION_API_KEY }}
+          CHIARA_VISION_MODEL_DEFAULT: ${{ secrets.CHIARA_VISION_MODEL }}
         with:
           projectPath: source
           tagName: ${{ steps.release_meta.outputs.tag }}
@@ -328,13 +341,42 @@ jobs:
           prerelease: ${{ inputs.prerelease == 'true' }}
           args: ${{ steps.build_args.outputs.args }}
 
+  # Runs once both runners have merged their platforms into latest.json and adds
+  # the release policy to it; the app reads it from `update.rawJson`. Signatures
+  # cover each installer, not latest.json, so editing it keeps them valid. The
+  # channel jobs below copy latest.json afterwards, so they get the field too.
+  inject-release-policy:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Add minimum_supported_version to latest.json
+        if: ${{ inputs.minimum_supported_version != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.channel == 'snapshot' && inputs.snapshot_version || inputs.source_ref }}
+          MIN_VERSION: ${{ inputs.minimum_supported_version }}
+          MIN_REASON: ${{ inputs.minimum_supported_reason }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          gh release download "${TAG}" --repo "${REPO}" --pattern "latest.json" --output latest.json
+
+          jq --arg v "$MIN_VERSION" --arg r "$MIN_REASON" \
+            '.minimum_supported_version = $v | .minimum_supported_reason = $r' \
+            latest.json > latest.json.tmp && mv latest.json.tmp latest.json
+
+          gh release upload "${TAG}" --repo "${REPO}" --clobber latest.json
+          echo "minimum_supported_version=${MIN_VERSION} written to ${TAG}/latest.json"
+
   # Job independiente que se ejecuta UNA SOLA VEZ cuando todos los runners (mac + win)
   # han terminado. Copia latest.json de la release recién publicada a la release
   # fija "snapshot-channel", que actúa como endpoint estable para el updater.
   # Los builds de snapshot apuntan su updater a:
   #   https://github.com/aidx-dev/chiara-releases/releases/download/snapshot-channel/latest.json
   update-snapshot-channel:
-    needs: publish
+    needs: inject-release-policy
     if: ${{ inputs.channel == 'snapshot' }}
     runs-on: ubuntu-latest
     permissions:
@@ -379,7 +421,7 @@ jobs:
   # Los builds RC apuntan su updater a:
   #   https://github.com/aidx-dev/chiara-releases/releases/download/rc-channel/latest.json
   update-rc-channel:
-    needs: publish
+    needs: inject-release-policy
     if: ${{ inputs.channel == 'rc' }}
     runs-on: ubuntu-latest
     permissions:
