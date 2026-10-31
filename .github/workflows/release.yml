@@ -309,6 +309,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Windows: link the CRT statically, which removes the static VCRUNTIME
+          # dependency of the Rust code. The C++ runtime DLLs (MSVCP140*.dll,
+          # VCRUNTIME140*.dll) still needed by ONNX Runtime and the llama.cpp
+          # binaries are shipped app-local via src-tauri/tauri.windows.conf.json
+          # + src-tauri/runtime/windows and src-tauri/bin/windows/vulkan.
+          # Needed here because src-tauri/.cargo/ is gitignored.
+          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
           # Último recurso leído por src-tauri/src/infrastructure/remote/config.rs
           # (compile_time_default): stable → producción, rc/snapshot → staging.
           # `supabase.json`/`app_kv` en la instalación de una clínica lo pisan sin
