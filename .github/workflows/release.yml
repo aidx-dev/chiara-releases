@@ -74,15 +74,17 @@ jobs:
         include:
           # NO usar macos-latest: es un blanco móvil (GitHub rota la imagen y el
           # Xcode por defecto). Con Xcode 16.3+ el enlazado de `ort` rompe con
-          # "ld: library 'clang_rt.osx' not found". macos-14 es Apple Silicon
-          # estable y trae Xcode 16.2 instalado (lo fijamos abajo).
-          - platform: macos-14 # Apple Silicon (M1/M2/M3)
+          # "ld: library 'clang_rt.osx' not found". macos-15 es Apple Silicon
+          # estable y trae Xcode 16.2 instalado (lo fijamos abajo). macos-14 se
+          # retiró el 2026-11-02. Antes de subir de imagen, comprobar que la
+          # nueva sigue trayendo Xcode 16.2 (ver el README de runner-images).
+          - platform: macos-15 # Apple Silicon (M1/M2/M3)
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          # Intel: se compila en cruzado desde el mismo macos-14 (ARM) para
+          # Intel: se compila en cruzado desde el mismo macos-15 (ARM) para
           # mantener Xcode 16.2. Los binarios de bin/macos se sustituyen por
           # los x86_64 en el paso "Binarios x86_64 (Intel)".
-          - platform: macos-14
+          - platform: macos-15
             target: x86_64-apple-darwin
             args: "--target x86_64-apple-darwin"
           - platform: windows-latest
@@ -103,7 +105,7 @@ jobs:
       # Fija Xcode 16.2, que sí incluye libclang_rt.osx.a. Xcode 16.3+ reubicó esa
       # librería estática y la crate `ort` (ONNX Runtime) falla al enlazar con
       # "ld: library 'clang_rt.osx' not found". Requiere que el runner tenga esa
-      # versión instalada: por eso arriba fijamos macos-14 (no macos-latest).
+      # versión instalada: por eso arriba fijamos macos-15 (no macos-latest).
       - name: Seleccionar Xcode compatible (solo macOS)
         if: runner.os == 'macOS'
         uses: maxim-lobanov/setup-xcode@v1
@@ -134,8 +136,8 @@ jobs:
           # `option_env!`, y una caché compartida entre canales podría reutilizar
           # el `.o` de `config.rs` de un build de `rc` para publicar `stable` con
           # la URL de staging empotrada.
-          prefix-key: "v2-rust-xcode16.2-${{ inputs.channel }}"
-          # Los dos jobs de macOS corren en el mismo runner (macos-14): sin el
+          prefix-key: "v3-rust-macos15-xcode16.2-${{ inputs.channel }}"
+          # Los dos jobs de macOS corren en el mismo runner (macos-15): sin el
           # target en la clave compartirían caché y uno pisaría al otro.
           key: ${{ matrix.target }}
 
