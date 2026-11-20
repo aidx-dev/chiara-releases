@@ -116,8 +116,16 @@ jobs:
         with:
           node-version: lts/*
 
-      - uses: dtolnay/rust-toolchain@stable
+      # NO usar @stable: es un blanco móvil. Las versiones nuevas de cargo
+      # cambiaron la estructura de target/ (OUT_DIR = build/<pkg>/<hash>/out, un
+      # nivel más) y el build script de ort-sys 2.0.0-rc.12 (feature por defecto
+      # `copy-dylibs`) calcula mal la carpeta destino de DirectML.dll en Windows:
+      # panic en dynamic_link.rs:42 "The system cannot find the path specified".
+      # 1.94.1 usa la estructura antigua. Antes de subir de versión, comprobar
+      # que el build de Windows sigue pasando (o quitar `copy-dylibs` de ort).
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.94.1"
           targets: ${{ matrix.target }}
 
       - name: Cache de compilación de Rust
